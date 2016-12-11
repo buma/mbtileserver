@@ -398,6 +398,9 @@ func GetService(c echo.Context) error {
 		case "metatile", "scale", "autoscale", "_updated", "Layer", "Stylesheet":
 			continue
 
+		case "modTime":
+			out["last_modified"] = v
+
 		default:
 			out[k] = v
 		}
