@@ -19,7 +19,6 @@ import (
 	"html/template"
 	"io"
 	"io/ioutil"
-	"math"
 	"net/http"
 	"os"
 	"path"
@@ -209,11 +208,6 @@ func serve() {
 	e.Use(middleware.Recover())
 	e.Use(middleware.CORS())
 
-	t := &Template{
-		templates: template.Must(template.ParseGlob("templates/*.html")),
-	}
-	e.SetRenderer(t)
-
 	gzip := middleware.Gzip()
 
 	// Setup routing
@@ -221,22 +215,16 @@ func serve() {
 	e.File("/favicon.png", "favicon.png")
 
 	// TODO: can use more caching here
-	e.Group("/static/", gzip, middleware.Static("templates/static/dist/"))
 
-	e.GET("/services", ListServices, NotModifiedMiddleware, gzip)
+	e.GET("/tiles", ListServices, NotModifiedMiddleware, gzip)
 
-	services := e.Group("/services/") // has to be separate from endpoint for ListServices
+	services := e.Group("/tiles/") // has to be separate from endpoint for ListServices
 	services.GET(":id", GetService, NotModifiedMiddleware, gzip)
-	services.GET(":id/map", GetServiceHTML, NotModifiedMiddleware, gzip)
-	services.Get(":id/tiles/:z/:x/:filename", GetTile, NotModifiedMiddleware)
+	services.GET(":id/tilejson.json", GetService, NotModifiedMiddleware, gzip)
+	services.GET(":id/tilejson.tilejson", GetService, NotModifiedMiddleware, gzip)
+	services.Get(":id/:z/:x/:filename", GetTile, NotModifiedMiddleware)
 	// TODO: add UTF8 grid
 
-	arcgis := e.Group("/arcgis/rest/")
-	// arcgis.GET("services", GetArcGISServices, NotModifiedMiddleware, gzip)
-	arcgis.GET("services/:id/MapServer", GetArcGISService, NotModifiedMiddleware, gzip)
-	arcgis.GET("services/:id/MapServer/layers", GetArcGISServiceLayers, NotModifiedMiddleware, gzip)
-	arcgis.GET("services/:id/MapServer/legend", GetArcGISServiceLegend, NotModifiedMiddleware, gzip)
-	arcgis.Get("services/:id/MapServer/tile/:z/:y/:x", GetArcGISTile, NotModifiedMiddleware)
 
 	e.Get("/admin/cache", CacheInfo, gzip)
 
@@ -419,24 +407,6 @@ func GetService(c echo.Context) error {
 	return c.JSON(http.StatusOK, out)
 }
 
-func GetServiceHTML(c echo.Context) error {
-	id, err := getServiceOr404(c)
-	if err != nil {
-		return err
-	}
-
-	p := TemplateParams{
-		URL: fmt.Sprintf("%s%s", getRootURL(c), strings.TrimSuffix(c.Request().URL().Path(), "/map")),
-		ID:  id,
-	}
-
-	if tilesets[id].format == "pbf" {
-		return c.Render(http.StatusOK, "map_gl", p)
-	}
-
-	return c.Render(http.StatusOK, "map", p)
-}
-
 func GetTile(c echo.Context) error {
 	var (
 		data        []byte
@@ -510,45 +480,28 @@ func NotModifiedMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		id, err := getServiceOr404(c)
 		var lastModified time.Time
+		readFromMBtile := true;
 		//for requests of tiles and tilejsons for mbtiles use lastModified file time as lastModified
 		if err == nil {
 			tileset := tilesets[id]
 
 			lastModified = tileset.metadata["modTime"].(time.Time)
-		//For rest use cacheTimestamp
+			//For rest use cacheTimestamp
 		} else {
+			readFromMBtile = false;
 			lastModified = cacheTimestamp
 		}
 
-		if t, err := time.Parse(http.TimeFormat, c.Request().Header().Get(echo.HeaderIfModifiedSince)); err == nil && lastModified.Before(t.Add(1*time.Second)) {
+		if t, err := time.Parse(http.TimeFormat, c.Request().Header().Get(echo.HeaderIfModifiedSince)); err == nil && lastModified.Before(t.Add(1 * time.Second)) {
 			c.Response().Header().Del(echo.HeaderContentType)
 			c.Response().Header().Del(echo.HeaderContentLength)
 			return c.NoContent(http.StatusNotModified)
 		}
 
 		c.Response().Header().Set(echo.HeaderLastModified, lastModified.UTC().Format(http.TimeFormat))
+		if readFromMBtile {
+			c.Response().Header().Set("Cache-control", "max-age=28800")
+		}
 		return next(c)
 	}
-}
-
-func toString(s interface{}) string {
-	if s != nil {
-		return s.(string)
-	}
-	return ""
-}
-
-func geoToMercator(longitude, latitude float64) (float64, float64) {
-	// bound to world coordinates
-	if latitude > 80 {
-		latitude = 80
-	} else if latitude < -80 {
-		latitude = -80
-	}
-
-	origin := 6378137 * math.Pi // 6378137 is WGS84 semi-major axis
-	x := longitude * origin / 180
-	y := math.Log(math.Tan((90+latitude)*math.Pi/360)) / (math.Pi / 180) * (origin / 180)
-
-	return x, y
 }
