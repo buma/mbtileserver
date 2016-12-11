@@ -381,8 +381,7 @@ func GetService(c echo.Context) error {
 		"id":       id,
 		"scheme":   "xyz",
 		"format":   imgFormat,
-		"tiles":    []string{fmt.Sprintf("%s/tiles/{z}/{x}/{y}.%s", svcURL, imgFormat)},
-		"map":      fmt.Sprintf("%s/map", svcURL),
+		"tiles":    []string{fmt.Sprintf("%s/{z}/{x}/{y}.%s", svcURL, imgFormat)},
 	}
 
 	for k, v := range tileset.metadata {
