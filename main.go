@@ -446,10 +446,8 @@ func GetTile(c echo.Context) error {
 
 	if len(data) <= 1 {
 		if tileset.format == "pbf" {
-			// If pbf, return 404 w/ json, consistent w/ mapbox
-			return c.JSON(http.StatusNotFound, struct {
-				Message string `json:"message"`
-			}{"Tile does not exist"})
+			// If pbf, return 204
+			return c.NoContent(http.StatusNoContent)
 		}
 
 		data = blankPNG
